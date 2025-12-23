@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY ocr_api.py /app/
+
+RUN pip install --upgrade pip
+RUN pip install datalab-chandra-ocr flask
+
+# تعيين المنفذ
+EXPOSE 5000
+
+# الأمر الافتراضي
+CMD ["python3", "ocr_api.py"]
