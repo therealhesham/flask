@@ -271,30 +271,37 @@ def ocr_image():
             # Use InferenceManager if available
             print(f"Using InferenceManager for image: {image_path}")
             try:
-                # Try different initialization and usage patterns
-                if hasattr(InferenceManager, '__call__'):
-                    # If it's callable directly
-                    manager = InferenceManager()
-                    if hasattr(manager, 'process'):
-                        result_text = manager.process(image_path)
-                    elif hasattr(manager, 'read_image'):
-                        result_text = manager.read_image(image_path)
-                    elif hasattr(manager, 'infer'):
-                        result_text = manager.infer(image_path)
-                    else:
-                        # Try calling it directly with the image path
-                        result_text = manager(image_path)
+                # Check if InferenceManager is a class or an instance
+                import inspect
+                is_class = inspect.isclass(InferenceManager)
+                
+                if is_class:
+                    # It's a class, so we need to instantiate it
+                    try:
+                        # Try instantiating with device parameter
+                        manager = InferenceManager(device="cpu")
+                    except TypeError:
+                        # If that fails, try without parameters
+                        try:
+                            manager = InferenceManager()
+                        except Exception as e:
+                            raise Exception(f"Failed to instantiate InferenceManager class: {str(e)}")
                 else:
-                    # Try as a class that needs instantiation
-                    manager = InferenceManager(device="cpu")
-                    if hasattr(manager, 'process'):
-                        result_text = manager.process(image_path)
-                    elif hasattr(manager, 'read_image'):
-                        result_text = manager.read_image(image_path)
-                    elif hasattr(manager, 'infer'):
-                        result_text = manager.infer(image_path)
-                    else:
-                        raise Exception("InferenceManager found but no known method to process image")
+                    # It's already an instance, use it directly
+                    manager = InferenceManager
+                
+                # Now use the manager instance to process the image
+                if hasattr(manager, 'process'):
+                    result_text = manager.process(image_path)
+                elif hasattr(manager, 'read_image'):
+                    result_text = manager.read_image(image_path)
+                elif hasattr(manager, 'infer'):
+                    result_text = manager.infer(image_path)
+                elif callable(manager):
+                    # If the manager itself is callable, try calling it directly
+                    result_text = manager(image_path)
+                else:
+                    raise Exception("InferenceManager found but no known method to process image")
                 output = {"text": result_text}
             except Exception as e:
                 raise Exception(f"Failed to use InferenceManager: {str(e)}")
