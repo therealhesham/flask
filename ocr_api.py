@@ -45,40 +45,23 @@ if process_file is None:
             from chandra_ocr import OCR
             print("✓ Found OCR class in chandra_ocr")
         except ImportError:
-            pass
+            # Try alternative import paths
+            try:
+                import chandra
+                if hasattr(chandra, 'OCR'):
+                    OCR = chandra.OCR
+                    print("✓ Found OCR class via chandra.OCR")
+                elif hasattr(chandra, 'ocr'):
+                    OCR = chandra.ocr.OCR
+                    print("✓ Found OCR class via chandra.ocr.OCR")
+            except Exception as e:
+                print(f"⚠ Could not import OCR class: {e}")
+                pass
 
-# Check if CLI is available (try both direct command and python -m)
-cli_available = False
-cli_command = None
-
-# Try direct 'chandra' command
-try:
-    result = subprocess.run(['chandra', '--help'], capture_output=True, text=True, timeout=5)
-    if result.returncode == 0 or 'chandra' in result.stderr.lower() or 'chandra' in result.stdout.lower():
-        cli_available = True
-        cli_command = ['chandra']
-        print("✓ chandra CLI command is available")
-except (FileNotFoundError, subprocess.TimeoutExpired):
-    pass
-
-# Try 'python -m chandra' if direct command not found
-if not cli_available:
-    try:
-        result = subprocess.run([sys.executable, '-m', 'chandra', '--help'], 
-                               capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 or 'chandra' in result.stderr.lower() or 'chandra' in result.stdout.lower():
-            cli_available = True
-            cli_command = [sys.executable, '-m', 'chandra']
-            print("✓ chandra CLI available via 'python -m chandra'")
-    except Exception:
-        pass
-
-if not cli_available:
-    print("⚠ chandra CLI command not found (tried 'chandra' and 'python -m chandra')")
-
-# If nothing found, use CLI as fallback (don't fail at import time)
-if process_file is None and OCR is None and not cli_available:
-    print("⚠ WARNING: Could not find process_file, OCR class, or CLI. Will attempt to use CLI anyway.")
+# Check if we have at least one working method
+if process_file is None and OCR is None:
+    print("⚠ WARNING: Could not find process_file or OCR class.")
+    print("⚠ Please ensure chandra-ocr is properly installed.")
 
 app = Flask(__name__)
 
@@ -97,8 +80,6 @@ def diagnostics():
     diagnostics_info = {
         "process_file_available": process_file is not None,
         "OCR_available": OCR is not None,
-        "cli_available": cli_available,
-        "cli_command": cli_command if cli_command else None,
     }
     
     # Try to get more info about chandra module
@@ -110,19 +91,6 @@ def diagnostics():
         }
     except Exception as e:
         diagnostics_info["chandra_module"] = {"error": str(e)}
-    
-    # Check CLI
-    try:
-        result = subprocess.run(['which', 'chandra'], capture_output=True, text=True, timeout=2)
-        if result.returncode == 0:
-            diagnostics_info["cli_path"] = result.stdout.strip()
-        else:
-            # Try on Windows
-            result = subprocess.run(['where', 'chandra'], capture_output=True, text=True, timeout=2, shell=True)
-            if result.returncode == 0:
-                diagnostics_info["cli_path"] = result.stdout.strip()
-    except Exception as e:
-        diagnostics_info["cli_check_error"] = str(e)
     
     return jsonify(diagnostics_info)
 
@@ -138,71 +106,64 @@ def ocr_image():
     try:
         if OCR is not None:
             # Use OCR class if available (direct method, no output directory needed)
+            print(f"Using OCR class for image: {image_path}")
             ocr_instance = OCR(device="cpu")
             result_text = ocr_instance.read_image(image_path)
             output = {"text": result_text}
-        else:
-            # Use process_file or CLI (requires output directory)
+        elif process_file is not None:
+            # Use process_file function (requires output directory)
+            print(f"Using process_file for image: {image_path}")
             with tempfile.TemporaryDirectory() as output_dir:
-                if process_file is not None:
-                    # Use process_file function if available
+                try:
+                    # Try different method parameters
                     try:
                         process_file(image_path, output_dir, method="hf")
-                    except Exception as e:
-                        print(f"process_file failed: {e}, falling back to CLI")
-                        # Fall back to CLI if process_file fails
-                        if cli_command:
-                            result = subprocess.run(
-                                cli_command + [image_path, output_dir],
-                                capture_output=True,
-                                text=True,
-                                timeout=300
-                            )
-                            if result.returncode != 0:
-                                raise Exception(f"CLI error: {result.stderr}")
-                        else:
-                            raise Exception(f"process_file failed and CLI not available: {e}")
-                else:
-                    # Use CLI command (primary method based on documentation)
-                    if cli_command:
-                        result = subprocess.run(
-                            cli_command + [image_path, output_dir],
-                            capture_output=True,
-                            text=True,
-                            timeout=300
-                        )
-                        if result.returncode != 0:
-                            error_msg = result.stderr if result.stderr else result.stdout
-                            raise Exception(f"CLI error (exit code {result.returncode}): {error_msg}")
-                    else:
-                        raise Exception("No OCR method available: process_file, OCR class, and CLI are all unavailable")
-                
-                # Find output file (chandra creates markdown files)
-                base_name = os.path.splitext(os.path.basename(file.filename))[0]
-                md_path = os.path.join(output_dir, f"{base_name}.md")
-                
-                if os.path.exists(md_path):
-                    with open(md_path, 'r', encoding='utf-8') as f:
-                        result_text = f.read()
-                else:
-                    # Check for any markdown or text files in output directory
-                    output_files = [f for f in os.listdir(output_dir) 
-                                   if f.endswith(('.md', '.txt', '.markdown'))]
-                    if output_files:
-                        md_path = os.path.join(output_dir, output_files[0])
+                    except Exception as e1:
+                        print(f"process_file with method='hf' failed: {e1}, trying without method parameter")
+                        try:
+                            process_file(image_path, output_dir)
+                        except Exception as e2:
+                            print(f"process_file without method parameter failed: {e2}")
+                            raise Exception(f"process_file failed: {e2}")
+                    
+                    # Find output file (chandra creates markdown files)
+                    base_name = os.path.splitext(os.path.basename(file.filename))[0]
+                    md_path = os.path.join(output_dir, f"{base_name}.md")
+                    
+                    if os.path.exists(md_path):
                         with open(md_path, 'r', encoding='utf-8') as f:
                             result_text = f.read()
                     else:
-                        # List what files were created for debugging
-                        created_files = os.listdir(output_dir)
-                        result_text = f"No output file found. Created files: {created_files}"
-                
-                output = {"text": result_text}
+                        # Check for any markdown or text files in output directory
+                        output_files = [f for f in os.listdir(output_dir) 
+                                       if f.endswith(('.md', '.txt', '.markdown'))]
+                        if output_files:
+                            md_path = os.path.join(output_dir, output_files[0])
+                            with open(md_path, 'r', encoding='utf-8') as f:
+                                result_text = f.read()
+                        else:
+                            # List what files were created for debugging
+                            created_files = os.listdir(output_dir)
+                            result_text = f"No output file found. Created files: {created_files}"
+                    
+                    output = {"text": result_text}
+                except Exception as e:
+                    raise Exception(f"Failed to process image with process_file: {str(e)}")
+        else:
+            raise Exception("No OCR method available. Please ensure chandra-ocr is properly installed with either OCR class or process_file function.")
     except Exception as e:
-        output = {"error": str(e)}
+        error_msg = str(e)
+        print(f"ERROR processing image: {error_msg}")
+        # Return error with status code 500 for server errors, 400 for client errors
+        status_code = 500 if "No OCR method available" in error_msg or "Failed to process" in error_msg else 400
+        output = {"error": error_msg}
+        return jsonify(output), status_code
     finally:
         if os.path.exists(image_path):
-            os.remove(image_path)
+            try:
+                os.remove(image_path)
+            except Exception as e:
+                print(f"Warning: Could not remove temp file {image_path}: {e}")
 
     return jsonify(output)
 
