@@ -1,20 +1,9 @@
 from flask import Flask, request, jsonify
 import os
-
-# Try different import paths for chandra-ocr
-try:
-    from chandra_ocr import OCR
-except ImportError:
-    try:
-        from chandra import OCR
-    except ImportError:
-        try:
-            from chandra.ocr import OCR
-        except ImportError:
-            raise ImportError("Could not import OCR from chandra_ocr, chandra, or chandra.ocr. Please check chandra-ocr installation.")
+import tempfile
+from chandra import process_file
 
 app = Flask(__name__)
-ocr = OCR(device="cpu")
 
 @app.route("/", methods=["GET"])
 def hello():
@@ -30,12 +19,24 @@ def ocr_image():
     file.save(image_path)
 
     try:
-        result_text = ocr.read_image(image_path)
+        with tempfile.TemporaryDirectory() as output_dir:
+            process_file(image_path, output_dir, method="hf")  # Use 'hf' for local HuggingFace inference on CPU (may be slow)
+            
+            base_name = os.path.splitext(file.filename)[0]
+            md_path = os.path.join(output_dir, f"{base_name}.md")
+            
+            if os.path.exists(md_path):
+                with open(md_path, 'r') as f:
+                    result_text = f.read()
+            else:
+                result_text = "No output generated"
+            
         output = {"text": result_text}
     except Exception as e:
         output = {"error": str(e)}
     finally:
-        os.remove(image_path)
+        if os.path.exists(image_path):
+            os.remove(image_path)
 
     return jsonify(output)
 
