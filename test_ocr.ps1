@@ -36,8 +36,8 @@ Write-Host "URL: $uri" -ForegroundColor White
 Write-Host "`nSending request..." -ForegroundColor Yellow
 
 try {
-    # Set longer timeout for OCR processing (120 seconds)
-    $response = curl.exe -X POST $uri -F "image=@$($fileInfo.FullName)" --max-time 120 2>&1
+    # Set longer timeout for OCR processing (900 seconds = 15 minutes)
+    $response = curl.exe -X POST $uri -F "image=@$($fileInfo.FullName)" --max-time 900 2>&1
     
     # Extract JSON response (usually the last line)
     $jsonResponse = $response | Select-String -Pattern '\{.*\}' | Select-Object -Last 1
