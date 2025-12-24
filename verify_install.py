@@ -47,14 +47,22 @@ try:
         print(f"✓ SUCCESS: Use 'from chandra import OCR'")
         sys.exit(0)
     
+    # Check for process_file function directly
+    if hasattr(chandra, 'process_file'):
+        print(f"\n✓ Found process_file function directly in chandra module!")
+        process_file = chandra.process_file
+        print(f"✓ process_file function: {process_file}")
+        print(f"✓ SUCCESS: Use 'from chandra import process_file'")
+        sys.exit(0)
+    
     # Check each attribute
     for attr in attrs:
         try:
             obj = getattr(chandra, attr)
             obj_type = type(obj).__name__
             print(f"  {attr}: {obj_type}")
-            if 'ocr' in attr.lower() or 'OCR' in attr or 'OCR' in str(obj_type):
-                print(f"    → Found potential OCR-related: {attr} ({obj_type})")
+            if 'ocr' in attr.lower() or 'OCR' in attr or 'OCR' in str(obj_type) or 'process' in attr.lower():
+                print(f"    → Found potential OCR/process-related: {attr} ({obj_type})")
         except Exception as e:
             print(f"  {attr}: (error accessing: {e})")
 except Exception as e:
@@ -62,7 +70,11 @@ except Exception as e:
 
 print("\n=== Attempting imports ===")
 import_attempts = [
+    ('chandra.process_file', 'from chandra import process_file'),
     ('chandra.OCR', 'from chandra import OCR'),
+    ('chandra.processing.process_file', 'from chandra.processing import process_file'),
+    ('chandra.core.process_file', 'from chandra.core import process_file'),
+    ('chandra.utils.process_file', 'from chandra.utils import process_file'),
     ('chandra.ocr', 'from chandra import ocr'),
     ('chandra.ocr.OCR', 'from chandra.ocr import OCR'),
     ('chandra_ocr', 'from chandra_ocr import OCR'),
@@ -73,8 +85,14 @@ for module_name, import_stmt in import_attempts:
     try:
         exec(import_stmt)
         print(f"✓ Successfully imported: {import_stmt}")
+        # Check if process_file function exists
+        if 'process_file' in locals():
+            print(f"✓ process_file function found: {process_file}")
+            print(f"✓ process_file type: {type(process_file)}")
+            print(f"\n✓✓✓ SUCCESS: The correct import is: {import_stmt} ✓✓✓")
+            sys.exit(0)
         # Check if OCR class exists
-        if 'OCR' in locals():
+        elif 'OCR' in locals():
             print(f"✓ OCR class found: {OCR}")
             print(f"✓ OCR class type: {type(OCR)}")
             print(f"\n✓✓✓ SUCCESS: The correct import is: {import_stmt} ✓✓✓")
@@ -100,7 +118,12 @@ if chandra_imported:
                 try:
                     submod = __import__(f'chandra.{module_name}', fromlist=[module_name])
                     print(f"Found submodule: chandra.{module_name}")
-                    if hasattr(submod, 'OCR'):
+                    if hasattr(submod, 'process_file'):
+                        print(f"✓ Found process_file in chandra.{module_name}!")
+                        process_file = submod.process_file
+                        print(f"✓✓✓ SUCCESS: Use 'from chandra.{module_name} import process_file' ✓✓✓")
+                        sys.exit(0)
+                    elif hasattr(submod, 'OCR'):
                         print(f"✓ Found OCR in chandra.{module_name}!")
                         OCR = submod.OCR
                         print(f"✓✓✓ SUCCESS: Use 'from chandra.{module_name} import OCR' ✓✓✓")
