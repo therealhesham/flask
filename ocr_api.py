@@ -9,20 +9,41 @@ process_file = None
 OCR = None
 
 # Diagnostic: Check what's available in chandra package
+chandra_module = None
+chandra_attrs = []
+
 try:
     import chandra
+    chandra_module = chandra
+    chandra_attrs = [x for x in dir(chandra) if not x.startswith('_')]
     print(f"✓ chandra module imported successfully from: {chandra.__file__}")
-    print(f"Available attributes: {[x for x in dir(chandra) if not x.startswith('_')]}")
+    print(f"Available attributes: {chandra_attrs}")
 except ImportError as e:
     print(f"⚠ Could not import chandra module: {e}")
 
-# First, try to import process_file
+# Also try chandra_ocr (with underscore)
+try:
+    import chandra_ocr
+    print(f"✓ chandra_ocr module imported successfully from: {chandra_ocr.__file__}")
+    chandra_ocr_attrs = [x for x in dir(chandra_ocr) if not x.startswith('_')]
+    print(f"Available attributes: {chandra_ocr_attrs}")
+    # Merge attributes if chandra_module is None
+    if chandra_module is None:
+        chandra_module = chandra_ocr
+        chandra_attrs = chandra_ocr_attrs
+except ImportError as e:
+    print(f"⚠ Could not import chandra_ocr module: {e}")
+
+# First, try to import process_file from various locations
 import_paths = [
     ('chandra', 'process_file'),
+    ('chandra_ocr', 'process_file'),
     ('chandra.processing', 'process_file'),
     ('chandra.core', 'process_file'),
     ('chandra.utils', 'process_file'),
     ('chandra.cli', 'process_file'),
+    ('chandra_ocr.processing', 'process_file'),
+    ('chandra_ocr.core', 'process_file'),
 ]
 
 for module_path, func_name in import_paths:
@@ -32,36 +53,72 @@ for module_path, func_name in import_paths:
             process_file = getattr(module, func_name)
             print(f"✓ Found process_file in {module_path}")
             break
-    except (ImportError, AttributeError):
+    except (ImportError, AttributeError) as e:
         continue
 
-# If process_file not found, try to import OCR class
+# If process_file not found, try to import OCR class from various locations
 if process_file is None:
-    try:
-        from chandra import OCR
-        print("✓ Found OCR class in chandra")
-    except ImportError:
+    ocr_import_paths = [
+        ('chandra', 'OCR'),
+        ('chandra_ocr', 'OCR'),
+        ('chandra.ocr', 'OCR'),
+        ('chandra_ocr.ocr', 'OCR'),
+    ]
+    
+    for module_path, class_name in ocr_import_paths:
         try:
-            from chandra_ocr import OCR
-            print("✓ Found OCR class in chandra_ocr")
-        except ImportError:
-            # Try alternative import paths
+            module = __import__(module_path, fromlist=[class_name])
+            if hasattr(module, class_name):
+                OCR = getattr(module, class_name)
+                print(f"✓ Found OCR class in {module_path}")
+                break
+        except (ImportError, AttributeError):
+            continue
+    
+    # If still not found, try direct attribute access on imported modules
+    if OCR is None and chandra_module is not None:
+        # Check direct attributes
+        if hasattr(chandra_module, 'OCR'):
+            OCR = chandra_module.OCR
+            print("✓ Found OCR class via direct attribute access")
+        elif hasattr(chandra_module, 'ocr'):
+            ocr_submodule = getattr(chandra_module, 'ocr')
+            if hasattr(ocr_submodule, 'OCR'):
+                OCR = ocr_submodule.OCR
+                print("✓ Found OCR class via chandra.ocr.OCR")
+        
+        # Explore submodules dynamically
+        if OCR is None:
             try:
-                import chandra
-                if hasattr(chandra, 'OCR'):
-                    OCR = chandra.OCR
-                    print("✓ Found OCR class via chandra.OCR")
-                elif hasattr(chandra, 'ocr'):
-                    OCR = chandra.ocr.OCR
-                    print("✓ Found OCR class via chandra.ocr.OCR")
+                import os
+                chandra_dir = os.path.dirname(chandra_module.__file__)
+                if os.path.exists(chandra_dir):
+                    for item in os.listdir(chandra_dir):
+                        if item.endswith('.py') and not item.startswith('__'):
+                            module_name = item[:-3]
+                            try:
+                                submod = __import__(f'{chandra_module.__name__}.{module_name}', 
+                                                   fromlist=[module_name])
+                                if hasattr(submod, 'OCR'):
+                                    OCR = submod.OCR
+                                    print(f"✓ Found OCR class in {chandra_module.__name__}.{module_name}")
+                                    break
+                                elif hasattr(submod, 'process_file'):
+                                    process_file = submod.process_file
+                                    print(f"✓ Found process_file in {chandra_module.__name__}.{module_name}")
+                                    break
+                            except Exception:
+                                pass
             except Exception as e:
-                print(f"⚠ Could not import OCR class: {e}")
-                pass
+                print(f"⚠ Error exploring submodules: {e}")
 
 # Check if we have at least one working method
 if process_file is None and OCR is None:
     print("⚠ WARNING: Could not find process_file or OCR class.")
     print("⚠ Please ensure chandra-ocr is properly installed.")
+    if chandra_module:
+        print(f"⚠ Available attributes in {chandra_module.__name__}: {chandra_attrs}")
+        print("⚠ Try checking the chandra-ocr documentation for the correct import path.")
 
 app = Flask(__name__)
 
@@ -80,6 +137,9 @@ def diagnostics():
     diagnostics_info = {
         "process_file_available": process_file is not None,
         "OCR_available": OCR is not None,
+        "chandra_module": None,
+        "chandra_ocr_module": None,
+        "cli_available": False,
     }
     
     # Try to get more info about chandra module
@@ -91,6 +151,28 @@ def diagnostics():
         }
     except Exception as e:
         diagnostics_info["chandra_module"] = {"error": str(e)}
+    
+    # Try to get more info about chandra_ocr module
+    try:
+        import chandra_ocr
+        diagnostics_info["chandra_ocr_module"] = {
+            "location": chandra_ocr.__file__,
+            "attributes": [x for x in dir(chandra_ocr) if not x.startswith('_')]
+        }
+    except Exception as e:
+        diagnostics_info["chandra_ocr_module"] = {"error": str(e)}
+    
+    # Check if CLI is available
+    try:
+        result = subprocess.run(['chandra', '--help'], 
+                              capture_output=True, 
+                              text=True, 
+                              timeout=5)
+        diagnostics_info["cli_available"] = result.returncode == 0
+        if diagnostics_info["cli_available"]:
+            diagnostics_info["cli_help"] = result.stdout[:500]  # First 500 chars
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        diagnostics_info["cli_available"] = False
     
     return jsonify(diagnostics_info)
 
@@ -150,7 +232,18 @@ def ocr_image():
                 except Exception as e:
                     raise Exception(f"Failed to process image with process_file: {str(e)}")
         else:
-            raise Exception("No OCR method available. Please ensure chandra-ocr is properly installed with either OCR class or process_file function.")
+            # Provide detailed error message with diagnostic info
+            error_details = ["No OCR method available. Please ensure chandra-ocr is properly installed with either OCR class or process_file function."]
+            
+            # Add diagnostic information
+            if chandra_module:
+                error_details.append(f"Found chandra module at: {chandra_module.__file__}")
+                error_details.append(f"Available attributes: {chandra_attrs}")
+            else:
+                error_details.append("Could not import chandra module. Try: pip install git+https://github.com/datalab-to/chandra.git")
+            
+            error_details.append("Check /diagnostics endpoint for more information.")
+            raise Exception(" ".join(error_details))
     except Exception as e:
         error_msg = str(e)
         print(f"ERROR processing image: {error_msg}")
