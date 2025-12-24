@@ -233,6 +233,39 @@ def test_connection():
         "server_time": time.strftime('%Y-%m-%d %H:%M:%S')
     }), 200
 
+@app.route("/vllm-status", methods=["GET"])
+def vllm_status():
+    """Check vLLM service status and configuration"""
+    import time
+    status_info = {
+        "timestamp": time.time(),
+        "server_time": time.strftime('%Y-%m-%d %H:%M:%S'),
+        "vllm_configured": False,
+        "vllm_environment": {},
+        "note": "This endpoint shows vLLM configuration. Actual connection testing requires an OCR request."
+    }
+    
+    # Check for vLLM environment variables
+    vllm_vars = {
+        "VLLM_HOST": os.environ.get("VLLM_HOST"),
+        "VLLM_PORT": os.environ.get("VLLM_PORT"),
+        "VLLM_BASE_URL": os.environ.get("VLLM_BASE_URL"),
+        "VLLM_API_BASE": os.environ.get("VLLM_API_BASE"),
+        "OPENAI_API_BASE": os.environ.get("OPENAI_API_BASE"),
+    }
+    
+    status_info["vllm_environment"] = {k: v for k, v in vllm_vars.items() if v}
+    status_info["vllm_configured"] = len(status_info["vllm_environment"]) > 0
+    
+    if not status_info["vllm_configured"]:
+        status_info["message"] = "No vLLM environment variables found. vLLM may be using default settings or configured within chandra package."
+        status_info["recommendation"] = "If experiencing connection errors, check chandra documentation for vLLM configuration."
+    else:
+        status_info["message"] = "vLLM environment variables detected."
+        status_info["recommendation"] = "If experiencing connection errors, verify vLLM service is running and accessible."
+    
+    return jsonify(status_info), 200
+
 @app.route("/diagnostics", methods=["GET"])
 def diagnostics():
     """Diagnostic endpoint to check chandra package availability"""
@@ -243,7 +276,34 @@ def diagnostics():
         "chandra_module": None,
         "chandra_ocr_module": None,
         "cli_available": False,
+        "vllm_info": {},
     }
+    
+    # Check vLLM related environment variables
+    vllm_env_vars = [
+        "VLLM_HOST", "VLLM_PORT", "VLLM_BASE_URL", 
+        "VLLM_API_BASE", "OPENAI_API_BASE", "OPENAI_API_KEY"
+    ]
+    diagnostics_info["vllm_info"]["environment_variables"] = {}
+    for var in vllm_env_vars:
+        value = os.environ.get(var)
+        if value:
+            # Mask sensitive values
+            if "KEY" in var or "SECRET" in var:
+                diagnostics_info["vllm_info"]["environment_variables"][var] = "***" if value else None
+            else:
+                diagnostics_info["vllm_info"]["environment_variables"][var] = value
+        else:
+            diagnostics_info["vllm_info"]["environment_variables"][var] = None
+    
+    # Add note about vLLM connection errors
+    diagnostics_info["vllm_info"]["note"] = "If you see 'Connection error' messages, vLLM service may be unavailable or unreachable. Check vLLM service status and network connectivity."
+    diagnostics_info["vllm_info"]["common_issues"] = [
+        "vLLM service not running",
+        "Network connectivity issues",
+        "Incorrect vLLM URL/port configuration",
+        "vLLM service overloaded or slow to respond"
+    ]
     
     # Add directory structure info if chandra module exists
     try:
@@ -510,7 +570,17 @@ def process_ocr_image(image_path, file):
                                         break
                                     except Exception as e:
                                         last_error = str(e)
+                                        error_str = str(e)
                                         print(f"Method {method_name} with {pattern_name} failed: {e}")
+                                        
+                                        # Check if it's a vLLM connection error
+                                        if "vllm" in error_str.lower() or "connection error" in error_str.lower() or "Connection error" in error_str:
+                                            print(f"⚠ vLLM connection error detected. This may indicate:")
+                                            print(f"  - vLLM service is not running or unreachable")
+                                            print(f"  - Network connectivity issues")
+                                            print(f"  - vLLM service is overloaded")
+                                            print(f"  - Check /vllm-status endpoint for configuration info")
+                                        
                                         continue
                                 
                                 if result_text is not None:
@@ -555,7 +625,17 @@ def process_ocr_image(image_path, file):
                                         break
                                     except Exception as e:
                                         last_error = str(e)
+                                        error_str = str(e)
                                         print(f"Method {method_name} with {pattern_name} failed: {e}")
+                                        
+                                        # Check if it's a vLLM connection error
+                                        if "vllm" in error_str.lower() or "connection error" in error_str.lower() or "Connection error" in error_str:
+                                            print(f"⚠ vLLM connection error detected. This may indicate:")
+                                            print(f"  - vLLM service is not running or unreachable")
+                                            print(f"  - Network connectivity issues")
+                                            print(f"  - vLLM service is overloaded")
+                                            print(f"  - Check /vllm-status endpoint for configuration info")
+                                        
                                         continue
                                 
                                 if result_text is not None:
@@ -571,6 +651,14 @@ def process_ocr_image(image_path, file):
                             error_msg += f"Last error: {last_error}. "
                             error_msg += "All patterns timed out - the method may be hanging or taking too long. "
                             error_msg += "Consider checking the InferenceManager documentation for the correct usage."
+                        elif "vllm" in last_error.lower() or "connection error" in last_error.lower() or "Connection error" in last_error:
+                            error_msg += f"Last error: {last_error}. "
+                            error_msg += "vLLM connection errors detected. This usually means: "
+                            error_msg += "1) vLLM service is not running or unreachable, "
+                            error_msg += "2) Network connectivity issues, or "
+                            error_msg += "3) vLLM service is overloaded. "
+                            error_msg += "Check /vllm-status endpoint for configuration info. "
+                            error_msg += "Note: chandra automatically retries vLLM connections, so the request may still succeed after retries."
                         else:
                             error_msg += f"Last error: {last_error}"
                     raise Exception(error_msg)
