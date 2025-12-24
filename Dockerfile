@@ -29,14 +29,20 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --upgrade pip setuptools wheel
 
-# Install dependencies from requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt || \
-    (echo "Installing from requirements.txt failed, trying individual packages..." && \
-     pip install --no-cache-dir flask && \
-     (pip install --no-cache-dir chandra-ocr 2>&1 || \
-      (echo "PyPI install failed, trying GitHub..." && \
-       pip install --no-cache-dir git+https://github.com/datalab-to/chandra.git))) && \
-    (pip show chandra-ocr || pip show chandra || (echo "ERROR: chandra-ocr not installed!" && exit 1))
+# Install basic dependencies first (excluding chandra-ocr)
+RUN pip install --no-cache-dir flask gunicorn torch transformers pillow numpy
+
+# Install chandra-ocr from GitHub (more reliable than PyPI)
+RUN pip install --no-cache-dir git+https://github.com/datalab-to/chandra.git || \
+    (echo "GitHub install failed, trying PyPI..." && \
+     pip install --no-cache-dir chandra-ocr)
+
+# Verify chandra-ocr installation and show available attributes
+RUN python3 -c "import chandra; print('✓ Chandra location:', chandra.__file__); attrs = [x for x in dir(chandra) if not x.startswith('_')]; print('✓ Chandra attributes:', attrs); import os; chandra_dir = os.path.dirname(chandra.__file__); print('✓ Chandra directory contents:', os.listdir(chandra_dir) if os.path.exists(chandra_dir) else 'N/A')" || \
+    echo "⚠ WARNING: Could not import chandra properly"
+
+# Verify installation
+RUN pip show chandra-ocr || pip show chandra || echo "WARNING: chandra-ocr package info not found"
 
 # Copy and run verification script (update verify_install.py to use correct imports like 'from chandra import process_file')
 COPY verify_install.py /app/

@@ -1,5 +1,9 @@
 flask
 gunicorn
-# Try PyPI first, fallback to GitHub in Dockerfile if needed
-chandra-ocr
+# Note: chandra-ocr is installed from GitHub in Dockerfile
+# Dependencies that chandra-ocr needs
+torch
+transformers
+pillow
+numpy
 
