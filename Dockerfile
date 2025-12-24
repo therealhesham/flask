@@ -17,10 +17,14 @@ WORKDIR /app
 COPY requirements.txt /app/
 RUN pip install --upgrade pip setuptools wheel
 
-# Install chandra-ocr - try GitHub repo if PyPI doesn't work
-RUN pip install --no-cache-dir flask && \
-    (pip install --no-cache-dir chandra-ocr || \
-     pip install --no-cache-dir git+https://github.com/datalab-to/chandra.git)
+# Install dependencies from requirements.txt first
+RUN pip install --no-cache-dir -r requirements.txt || \
+    (echo "Installing from requirements.txt failed, trying individual packages..." && \
+     pip install --no-cache-dir flask && \
+     (pip install --no-cache-dir chandra-ocr 2>&1 || \
+      (echo "PyPI install failed, trying GitHub..." && \
+       pip install --no-cache-dir git+https://github.com/datalab-to/chandra.git))) && \
+    (pip show chandra-ocr || pip show chandra || (echo "ERROR: chandra-ocr not installed!" && exit 1))
 
 # Copy and run verification script
 COPY verify_install.py /app/

@@ -1,6 +1,17 @@
 from flask import Flask, request, jsonify
-from chandra_ocr import OCR
 import os
+
+# Try different import paths for chandra-ocr
+try:
+    from chandra_ocr import OCR
+except ImportError:
+    try:
+        from chandra import OCR
+    except ImportError:
+        try:
+            from chandra.ocr import OCR
+        except ImportError:
+            raise ImportError("Could not import OCR from chandra_ocr, chandra, or chandra.ocr. Please check chandra-ocr installation.")
 
 app = Flask(__name__)
 ocr = OCR(device="cpu")
