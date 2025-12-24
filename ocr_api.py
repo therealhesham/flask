@@ -191,6 +191,7 @@ app = Flask(__name__)
 # Configure Flask timeout settings
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max file size
 
 @app.route("/", methods=["GET"])
 def hello():
@@ -265,13 +266,45 @@ def ocr_image():
     image_path = os.path.join("/tmp", file.filename)
     file.save(image_path)
 
+    # Overall timeout for the entire OCR operation (15 minutes)
+    overall_timeout = 900
+    try:
+        # Wrap the entire OCR processing in a timeout
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(process_ocr_image, image_path, file)
+            try:
+                output = future.result(timeout=overall_timeout)
+                return jsonify(output)
+            except FutureTimeoutError:
+                error_msg = f"OCR operation timed out after {overall_timeout} seconds (15 minutes). The image may be too complex or the service is overloaded. Please try with a smaller or simpler image, or check if there's a timeout configured in your reverse proxy/load balancer."
+                print(f"ERROR: {error_msg}")
+                return jsonify({"error": error_msg, "timeout_seconds": overall_timeout}), 504  # 504 Gateway Timeout
+    except Exception as e:
+        error_msg = str(e)
+        print(f"ERROR processing image: {error_msg}")
+        status_code = 500 if "No OCR method available" in error_msg or "Failed to process" in error_msg else 400
+        return jsonify({"error": error_msg}), status_code
+    finally:
+        if os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except Exception as e:
+                print(f"Warning: Could not remove temp file {image_path}: {e}")
+
+def process_ocr_image(image_path, file):
+    """Process OCR on the image - called within timeout wrapper"""
     try:
         if OCR is not None:
             # Use OCR class if available (direct method, no output directory needed)
             print(f"Using OCR class for image: {image_path}")
-            ocr_instance = OCR(device="cpu")
-            result_text = ocr_instance.read_image(image_path)
-            output = {"text": result_text}
+            # Wrap OCR.read_image in timeout as well
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(lambda: OCR(device="cpu").read_image(image_path))
+                try:
+                    result_text = future.result(timeout=600)  # 10 minutes for OCR class
+                    output = {"text": result_text}
+                except FutureTimeoutError:
+                    raise Exception("OCR.read_image timed out after 600 seconds")
         elif InferenceManager is not None:
             # Use InferenceManager if available
             print(f"Using InferenceManager for image: {image_path}")
@@ -394,10 +427,10 @@ def ocr_image():
                                     batch_patterns.append(('batch=[ImagePrompt] PIL', 
                                         lambda: method(batch=[ImagePrompt(pil_image, 'Extract text from this image')])))
                                 
-                                # Try each batch pattern with timeout (300 seconds per pattern for OCR processing)
-                                pattern_timeout = 300  # seconds per pattern - OCR can take time for complex images
+                                # Try each batch pattern with timeout (600 seconds per pattern for OCR processing)
+                                pattern_timeout = 600  # seconds per pattern - OCR can take time for complex images
                                 timeout_count = 0
-                                max_timeouts = 2  # Stop after 2 timeouts to avoid long waits
+                                max_timeouts = 1  # Stop after 1 timeout to try next method faster
                                 
                                 for pattern_name, pattern_func in batch_patterns:
                                     # Stop if too many timeouts
@@ -461,8 +494,8 @@ def ocr_image():
                                 if method_name == '__call__':
                                     patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
                                 
-                                # Try each pattern with timeout (300 seconds per pattern for OCR processing)
-                                pattern_timeout = 300  # seconds per pattern - OCR can take time for complex images
+                                # Try each pattern with timeout (600 seconds per pattern for OCR processing)
+                                pattern_timeout = 600  # seconds per pattern - OCR can take time for complex images
                                 for pattern_name, pattern_func in patterns_to_try:
                                     try:
                                         method_tried = f"{method_name}({pattern_name})"
@@ -509,16 +542,25 @@ def ocr_image():
             print(f"Using process_file for image: {image_path}")
             with tempfile.TemporaryDirectory() as output_dir:
                 try:
-                    # Try different method parameters
-                    try:
-                        process_file(image_path, output_dir, method="hf")
-                    except Exception as e1:
-                        print(f"process_file with method='hf' failed: {e1}, trying without method parameter")
+                    # Wrap process_file in timeout
+                    with ThreadPoolExecutor(max_workers=1) as executor:
+                        # Try different method parameters
+                        def try_process_file():
+                            try:
+                                return process_file(image_path, output_dir, method="hf")
+                            except Exception as e1:
+                                print(f"process_file with method='hf' failed: {e1}, trying without method parameter")
+                                try:
+                                    return process_file(image_path, output_dir)
+                                except Exception as e2:
+                                    print(f"process_file without method parameter failed: {e2}")
+                                    raise Exception(f"process_file failed: {e2}")
+                        
+                        future = executor.submit(try_process_file)
                         try:
-                            process_file(image_path, output_dir)
-                        except Exception as e2:
-                            print(f"process_file without method parameter failed: {e2}")
-                            raise Exception(f"process_file failed: {e2}")
+                            future.result(timeout=600)  # 10 minutes for process_file
+                        except FutureTimeoutError:
+                            raise Exception("process_file timed out after 600 seconds")
                     
                     # Find output file (chandra creates markdown files)
                     base_name = os.path.splitext(os.path.basename(file.filename))[0]
@@ -566,18 +608,9 @@ def ocr_image():
     except Exception as e:
         error_msg = str(e)
         print(f"ERROR processing image: {error_msg}")
-        # Return error with status code 500 for server errors, 400 for client errors
-        status_code = 500 if "No OCR method available" in error_msg or "Failed to process" in error_msg else 400
-        output = {"error": error_msg}
-        return jsonify(output), status_code
-    finally:
-        if os.path.exists(image_path):
-            try:
-                os.remove(image_path)
-            except Exception as e:
-                print(f"Warning: Could not remove temp file {image_path}: {e}")
-
-    return jsonify(output)
+        raise Exception(error_msg)
+    
+    return output
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

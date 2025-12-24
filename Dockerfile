@@ -54,4 +54,4 @@ COPY ocr_api.py /app/
 EXPOSE 5000
 
 # Default command - use gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "900", "--graceful-timeout", "30", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-", "ocr_api:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "1200", "--graceful-timeout", "60", "--keep-alive", "5", "--access-logfile", "-", "--error-logfile", "-", "ocr_api:app"]
