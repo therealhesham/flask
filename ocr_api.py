@@ -290,18 +290,55 @@ def ocr_image():
                     # It's already an instance, use it directly
                     manager = InferenceManager
                 
+                # Get all available methods/attributes for diagnostics
+                available_methods = [attr for attr in dir(manager) if not attr.startswith('_') and callable(getattr(manager, attr, None))]
+                print(f"InferenceManager available methods: {available_methods}")
+                
                 # Now use the manager instance to process the image
-                if hasattr(manager, 'process'):
-                    result_text = manager.process(image_path)
-                elif hasattr(manager, 'read_image'):
-                    result_text = manager.read_image(image_path)
-                elif hasattr(manager, 'infer'):
-                    result_text = manager.infer(image_path)
-                elif callable(manager):
-                    # If the manager itself is callable, try calling it directly
-                    result_text = manager(image_path)
-                else:
-                    raise Exception("InferenceManager found but no known method to process image")
+                # Try various method names that might be used
+                result_text = None
+                method_tried = None
+                
+                # List of possible method names to try
+                possible_methods = [
+                    'process', 'read_image', 'infer', 'predict', 'ocr', 
+                    'extract_text', 'run', 'execute', 'forward', '__call__'
+                ]
+                
+                for method_name in possible_methods:
+                    if hasattr(manager, method_name):
+                        method = getattr(manager, method_name)
+                        if callable(method):
+                            try:
+                                method_tried = method_name
+                                # Try calling with image_path as argument
+                                if method_name == '__call__':
+                                    result_text = manager(image_path)
+                                else:
+                                    result_text = method(image_path)
+                                print(f"Successfully used method: {method_name}")
+                                break
+                            except Exception as e:
+                                print(f"Method {method_name} exists but failed: {e}")
+                                # Try with different argument patterns
+                                try:
+                                    if method_name != '__call__':
+                                        # Try with keyword argument
+                                        result_text = method(image=image_path)
+                                        method_tried = f"{method_name}(image=...)"
+                                        print(f"Successfully used method: {method_tried}")
+                                        break
+                                except:
+                                    pass
+                                continue
+                
+                if result_text is None:
+                    # Provide detailed error with available methods
+                    error_msg = f"InferenceManager found but no known method to process image. "
+                    error_msg += f"Available methods: {available_methods}. "
+                    error_msg += f"Tried methods: {possible_methods}"
+                    raise Exception(error_msg)
+                
                 output = {"text": result_text}
             except Exception as e:
                 raise Exception(f"Failed to use InferenceManager: {str(e)}")
