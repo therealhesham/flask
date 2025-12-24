@@ -319,47 +319,89 @@ def ocr_image():
                     if hasattr(manager, method_name):
                         method = getattr(manager, method_name)
                         if callable(method):
-                            # Try various calling patterns
-                            patterns_to_try = []
-                            
-                            # Pattern 1: Direct file path (positional)
-                            patterns_to_try.append(('positional path', lambda: method(image_path)))
-                            
-                            # Pattern 2: File path as keyword 'image'
-                            patterns_to_try.append(('keyword image', lambda: method(image=image_path)))
-                            
-                            # Pattern 3: File path as keyword 'image_path'
-                            patterns_to_try.append(('keyword image_path', lambda: method(image_path=image_path)))
-                            
-                            # Pattern 4: File path as keyword 'path'
-                            patterns_to_try.append(('keyword path', lambda: method(path=image_path)))
-                            
-                            # Pattern 5: PIL Image (positional)
-                            if pil_image is not None:
-                                patterns_to_try.append(('PIL Image positional', lambda: method(pil_image)))
-                            
-                            # Pattern 6: PIL Image as keyword 'image'
-                            if pil_image is not None:
-                                patterns_to_try.append(('PIL Image keyword', lambda: method(image=pil_image)))
-                            
-                            # Pattern 7: Direct call on manager (for __call__)
-                            if method_name == '__call__':
-                                patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
-                            
-                            # Try each pattern
-                            for pattern_name, pattern_func in patterns_to_try:
-                                try:
-                                    method_tried = f"{method_name}({pattern_name})"
-                                    result_text = pattern_func()
-                                    print(f"Successfully used method: {method_tried}")
+                            # Special handling for 'generate' method which requires 'batch' parameter
+                            if method_name == 'generate':
+                                # Try different batch formats
+                                batch_patterns = []
+                                
+                                # Pattern 1: List of image paths
+                                batch_patterns.append(('batch=[path]', lambda: method(batch=[image_path])))
+                                
+                                # Pattern 2: List of PIL Images
+                                if pil_image is not None:
+                                    batch_patterns.append(('batch=[PIL]', lambda: method(batch=[pil_image])))
+                                
+                                # Pattern 3: Tuple of image paths
+                                batch_patterns.append(('batch=(path,)', lambda: method(batch=(image_path,))))
+                                
+                                # Pattern 4: Single image path as batch (positional)
+                                batch_patterns.append(('batch=path positional', lambda: method([image_path])))
+                                
+                                # Pattern 5: Single PIL Image as batch (positional)
+                                if pil_image is not None:
+                                    batch_patterns.append(('batch=PIL positional', lambda: method([pil_image])))
+                                
+                                # Try each batch pattern
+                                for pattern_name, pattern_func in batch_patterns:
+                                    try:
+                                        method_tried = f"{method_name}({pattern_name})"
+                                        result = pattern_func()
+                                        # Handle result - might be a list or single value
+                                        if isinstance(result, list):
+                                            result_text = result[0] if len(result) > 0 else str(result)
+                                        else:
+                                            result_text = result
+                                        print(f"Successfully used method: {method_tried}")
+                                        break
+                                    except Exception as e:
+                                        last_error = str(e)
+                                        print(f"Method {method_name} with {pattern_name} failed: {e}")
+                                        continue
+                                
+                                if result_text is not None:
                                     break
-                                except Exception as e:
-                                    last_error = str(e)
-                                    print(f"Method {method_name} with {pattern_name} failed: {e}")
-                                    continue
-                            
-                            if result_text is not None:
-                                break
+                            else:
+                                # Try various calling patterns for other methods
+                                patterns_to_try = []
+                                
+                                # Pattern 1: Direct file path (positional)
+                                patterns_to_try.append(('positional path', lambda: method(image_path)))
+                                
+                                # Pattern 2: File path as keyword 'image'
+                                patterns_to_try.append(('keyword image', lambda: method(image=image_path)))
+                                
+                                # Pattern 3: File path as keyword 'image_path'
+                                patterns_to_try.append(('keyword image_path', lambda: method(image_path=image_path)))
+                                
+                                # Pattern 4: File path as keyword 'path'
+                                patterns_to_try.append(('keyword path', lambda: method(path=image_path)))
+                                
+                                # Pattern 5: PIL Image (positional)
+                                if pil_image is not None:
+                                    patterns_to_try.append(('PIL Image positional', lambda: method(pil_image)))
+                                
+                                # Pattern 6: PIL Image as keyword 'image'
+                                if pil_image is not None:
+                                    patterns_to_try.append(('PIL Image keyword', lambda: method(image=pil_image)))
+                                
+                                # Pattern 7: Direct call on manager (for __call__)
+                                if method_name == '__call__':
+                                    patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
+                                
+                                # Try each pattern
+                                for pattern_name, pattern_func in patterns_to_try:
+                                    try:
+                                        method_tried = f"{method_name}({pattern_name})"
+                                        result_text = pattern_func()
+                                        print(f"Successfully used method: {method_tried}")
+                                        break
+                                    except Exception as e:
+                                        last_error = str(e)
+                                        print(f"Method {method_name} with {pattern_name} failed: {e}")
+                                        continue
+                                
+                                if result_text is not None:
+                                    break
                 
                 if result_text is None:
                     # Provide detailed error with available methods and last error
