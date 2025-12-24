@@ -390,10 +390,10 @@ def ocr_image():
                                     batch_patterns.append(('batch=[ImagePrompt] PIL', 
                                         lambda: method(batch=[ImagePrompt(pil_image, 'Extract text from this image')])))
                                 
-                                # Try each batch pattern with timeout (5 seconds per pattern to avoid long waits)
-                                pattern_timeout = 5  # seconds per pattern
+                                # Try each batch pattern with timeout (60 seconds per pattern for OCR processing)
+                                pattern_timeout = 60  # seconds per pattern - OCR can take time
                                 timeout_count = 0
-                                max_timeouts = 3  # Stop after 3 timeouts to avoid long waits
+                                max_timeouts = 2  # Stop after 2 timeouts to avoid long waits
                                 
                                 for pattern_name, pattern_func in batch_patterns:
                                     # Stop if too many timeouts
@@ -457,8 +457,8 @@ def ocr_image():
                                 if method_name == '__call__':
                                     patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
                                 
-                                # Try each pattern with timeout (5 seconds per pattern to avoid long waits)
-                                pattern_timeout = 5  # seconds per pattern
+                                # Try each pattern with timeout (60 seconds per pattern for OCR processing)
+                                pattern_timeout = 60  # seconds per pattern - OCR can take time
                                 for pattern_name, pattern_func in patterns_to_try:
                                     try:
                                         method_tried = f"{method_name}({pattern_name})"
