@@ -84,7 +84,12 @@ app = Flask(__name__)
 
 @app.route("/", methods=["GET"])
 def hello():
-    return jsonify({"message": "hello world"})
+    return jsonify({"message": "hello world", "status": "ok"})
+
+@app.route("/health", methods=["GET"])
+def health():
+    """Health check endpoint"""
+    return jsonify({"status": "healthy", "service": "ocr-api"}), 200
 
 @app.route("/diagnostics", methods=["GET"])
 def diagnostics():

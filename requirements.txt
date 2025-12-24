@@ -1,4 +1,5 @@
 flask
+gunicorn
 # Try PyPI first, fallback to GitHub in Dockerfile if needed
 chandra-ocr
 

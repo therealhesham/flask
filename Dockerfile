@@ -47,5 +47,5 @@ COPY ocr_api.py /app/
 # Expose the port
 EXPOSE 5000
 
-# Default command
-CMD ["python3", "ocr_api.py"]
+# Default command - use gunicorn for production
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "600", "--access-logfile", "-", "--error-logfile", "-", "ocr_api:app"]
