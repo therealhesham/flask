@@ -321,25 +321,73 @@ def ocr_image():
                         if callable(method):
                             # Special handling for 'generate' method which requires 'batch' parameter
                             if method_name == 'generate':
+                                # Inspect method signature to understand expected parameters
+                                try:
+                                    import inspect
+                                    sig = inspect.signature(method)
+                                    print(f"generate method signature: {sig}")
+                                    params = list(sig.parameters.keys())
+                                    print(f"generate method parameters: {params}")
+                                except Exception as e:
+                                    print(f"Could not inspect generate method signature: {e}")
+                                
                                 # Try different batch formats
+                                # The error suggests it expects objects with 'prompt' attribute
                                 batch_patterns = []
                                 
-                                # Pattern 1: List of image paths
+                                # Pattern 1: List of dicts with 'image' and 'prompt' keys (image path)
+                                batch_patterns.append(('batch=[{image, prompt}] path', 
+                                    lambda: method(batch=[{'image': image_path, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 2: List of dicts with 'image' and 'prompt' keys (PIL Image)
+                                if pil_image is not None:
+                                    batch_patterns.append(('batch=[{image, prompt}] PIL', 
+                                        lambda: method(batch=[{'image': pil_image, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 3: List of dicts with different key names
+                                batch_patterns.append(('batch=[{image_path, prompt}]', 
+                                    lambda: method(batch=[{'image_path': image_path, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 4: List of dicts with 'img' key
+                                batch_patterns.append(('batch=[{img, prompt}]', 
+                                    lambda: method(batch=[{'img': image_path, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 5: List of dicts with PIL Image and 'img' key
+                                if pil_image is not None:
+                                    batch_patterns.append(('batch=[{img, prompt}] PIL', 
+                                        lambda: method(batch=[{'img': pil_image, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 6: Simple object-like dict with prompt
+                                batch_patterns.append(('batch=[{image, prompt}] OCR', 
+                                    lambda: method(batch=[{'image': image_path, 'prompt': 'What text is in this image?'}])))
+                                
+                                # Pattern 7: Empty prompt or no prompt
+                                batch_patterns.append(('batch=[{image}] no prompt', 
+                                    lambda: method(batch=[{'image': image_path}])))
+                                
+                                # Pattern 8: List of image paths (fallback)
                                 batch_patterns.append(('batch=[path]', lambda: method(batch=[image_path])))
                                 
-                                # Pattern 2: List of PIL Images
+                                # Pattern 9: List of PIL Images (fallback)
                                 if pil_image is not None:
                                     batch_patterns.append(('batch=[PIL]', lambda: method(batch=[pil_image])))
                                 
-                                # Pattern 3: Tuple of image paths
-                                batch_patterns.append(('batch=(path,)', lambda: method(batch=(image_path,))))
+                                # Pattern 10: Positional batch with dict
+                                batch_patterns.append(('batch=[{image, prompt}] positional', 
+                                    lambda: method([{'image': image_path, 'prompt': 'Extract text from this image'}])))
                                 
-                                # Pattern 4: Single image path as batch (positional)
-                                batch_patterns.append(('batch=path positional', lambda: method([image_path])))
+                                # Pattern 11: Simple object class with image and prompt attributes
+                                class ImagePrompt:
+                                    def __init__(self, image, prompt):
+                                        self.image = image
+                                        self.prompt = prompt
                                 
-                                # Pattern 5: Single PIL Image as batch (positional)
+                                batch_patterns.append(('batch=[ImagePrompt] path', 
+                                    lambda: method(batch=[ImagePrompt(image_path, 'Extract text from this image')])))
+                                
                                 if pil_image is not None:
-                                    batch_patterns.append(('batch=PIL positional', lambda: method([pil_image])))
+                                    batch_patterns.append(('batch=[ImagePrompt] PIL', 
+                                        lambda: method(batch=[ImagePrompt(pil_image, 'Extract text from this image')])))
                                 
                                 # Try each batch pattern
                                 for pattern_name, pattern_func in batch_patterns:
