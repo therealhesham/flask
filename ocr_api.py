@@ -3,6 +3,7 @@ import os
 import tempfile
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 # Try different import paths for process_file from chandra
 process_file = None
@@ -389,18 +390,38 @@ def ocr_image():
                                     batch_patterns.append(('batch=[ImagePrompt] PIL', 
                                         lambda: method(batch=[ImagePrompt(pil_image, 'Extract text from this image')])))
                                 
-                                # Try each batch pattern
+                                # Try each batch pattern with timeout (5 seconds per pattern to avoid long waits)
+                                pattern_timeout = 5  # seconds per pattern
+                                timeout_count = 0
+                                max_timeouts = 3  # Stop after 3 timeouts to avoid long waits
+                                
                                 for pattern_name, pattern_func in batch_patterns:
+                                    # Stop if too many timeouts
+                                    if timeout_count >= max_timeouts:
+                                        print(f"Stopping after {max_timeouts} timeouts to avoid long waits")
+                                        break
+                                    
                                     try:
                                         method_tried = f"{method_name}({pattern_name})"
-                                        result = pattern_func()
-                                        # Handle result - might be a list or single value
-                                        if isinstance(result, list):
-                                            result_text = result[0] if len(result) > 0 else str(result)
-                                        else:
-                                            result_text = result
-                                        print(f"Successfully used method: {method_tried}")
-                                        break
+                                        print(f"Trying pattern: {method_tried}")
+                                        
+                                        # Execute with timeout
+                                        with ThreadPoolExecutor(max_workers=1) as executor:
+                                            future = executor.submit(pattern_func)
+                                            try:
+                                                result = future.result(timeout=pattern_timeout)
+                                                # Handle result - might be a list or single value
+                                                if isinstance(result, list):
+                                                    result_text = result[0] if len(result) > 0 else str(result)
+                                                else:
+                                                    result_text = result
+                                                print(f"Successfully used method: {method_tried}")
+                                                break
+                                            except FutureTimeoutError:
+                                                timeout_count += 1
+                                                last_error = f"Pattern {pattern_name} timed out after {pattern_timeout}s"
+                                                print(f"Method {method_name} with {pattern_name} timed out ({timeout_count}/{max_timeouts})")
+                                                continue
                                     except Exception as e:
                                         last_error = str(e)
                                         print(f"Method {method_name} with {pattern_name} failed: {e}")
@@ -436,13 +457,24 @@ def ocr_image():
                                 if method_name == '__call__':
                                     patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
                                 
-                                # Try each pattern
+                                # Try each pattern with timeout (5 seconds per pattern to avoid long waits)
+                                pattern_timeout = 5  # seconds per pattern
                                 for pattern_name, pattern_func in patterns_to_try:
                                     try:
                                         method_tried = f"{method_name}({pattern_name})"
-                                        result_text = pattern_func()
-                                        print(f"Successfully used method: {method_tried}")
-                                        break
+                                        print(f"Trying pattern: {method_tried}")
+                                        
+                                        # Execute with timeout
+                                        with ThreadPoolExecutor(max_workers=1) as executor:
+                                            future = executor.submit(pattern_func)
+                                            try:
+                                                result_text = future.result(timeout=pattern_timeout)
+                                                print(f"Successfully used method: {method_tried}")
+                                                break
+                                            except FutureTimeoutError:
+                                                last_error = f"Pattern {pattern_name} timed out after {pattern_timeout}s"
+                                                print(f"Method {method_name} with {pattern_name} timed out")
+                                                continue
                                     except Exception as e:
                                         last_error = str(e)
                                         print(f"Method {method_name} with {pattern_name} failed: {e}")
@@ -457,7 +489,12 @@ def ocr_image():
                     error_msg += f"Available methods: {available_methods}. "
                     error_msg += f"Tried methods: {possible_methods}. "
                     if last_error:
-                        error_msg += f"Last error: {last_error}"
+                        if "timed out" in last_error.lower():
+                            error_msg += f"Last error: {last_error}. "
+                            error_msg += "All patterns timed out - the method may be hanging or taking too long. "
+                            error_msg += "Consider checking the InferenceManager documentation for the correct usage."
+                        else:
+                            error_msg += f"Last error: {last_error}"
                     raise Exception(error_msg)
                 
                 output = {"text": result_text}
