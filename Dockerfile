@@ -5,14 +5,16 @@ RUN apt-get update && apt-get install -y \
     curl \
     libgl1 \
     libglib2.0-0 \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY ocr_api.py /app/
+COPY requirements.txt /app/
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-RUN pip install --upgrade pip
-RUN pip install chandra-ocr flask
+COPY ocr_api.py /app/
 
 # تعيين المنفذ
 EXPOSE 5000
