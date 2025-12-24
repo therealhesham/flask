@@ -5,6 +5,10 @@ import os
 app = Flask(__name__)
 ocr = OCR(device="cpu")
 
+@app.route("/", methods=["GET"])
+def hello():
+    return jsonify({"message": "hello world"})
+
 @app.route("/ocr", methods=["POST"])
 def ocr_image():
     if "image" not in request.files:
