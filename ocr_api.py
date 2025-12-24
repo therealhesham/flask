@@ -210,9 +210,28 @@ def timeout_info():
         "overall_timeout_minutes": 30,
         "gunicorn_timeout_seconds": 2400,
         "gunicorn_timeout_minutes": 40,
-        "note": "If you're using sslip.io or another reverse proxy, they may have their own timeout limits that override these settings."
+        "curl_timeout_seconds": 2400,
+        "curl_timeout_minutes": 40,
+        "note": "If you're using sslip.io or another reverse proxy, they may have their own timeout limits that override these settings.",
+        "recommendations": [
+            "If timeout persists, try accessing directly: http://YOUR_SERVER_IP:5000/ocr",
+            "sslip.io may have a 60-120 second timeout limit",
+            "Use a smaller or simpler image",
+            "Check server logs for actual processing time"
+        ]
     }
     return jsonify(timeout_info), 200
+
+@app.route("/test-connection", methods=["GET"])
+def test_connection():
+    """Test endpoint to verify connection works without timeout"""
+    import time
+    return jsonify({
+        "status": "ok",
+        "message": "Connection test successful",
+        "timestamp": time.time(),
+        "server_time": time.strftime('%Y-%m-%d %H:%M:%S')
+    }), 200
 
 @app.route("/diagnostics", methods=["GET"])
 def diagnostics():
@@ -271,31 +290,63 @@ def diagnostics():
 
 @app.route("/ocr", methods=["POST"])
 def ocr_image():
+    import time
+    start_time = time.time()
+    
     if "image" not in request.files:
         return jsonify({"error": "No image file provided"}), 400
 
     file = request.files["image"]
     image_path = os.path.join("/tmp", file.filename)
     file.save(image_path)
+    
+    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting OCR for: {file.filename}")
 
     # Overall timeout for the entire OCR operation (30 minutes)
     overall_timeout = 1800
     try:
+        # Send initial response headers to keep connection alive
+        # This helps with reverse proxies that timeout on idle connections
+        
         # Wrap the entire OCR processing in a timeout
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(process_ocr_image, image_path, file)
             try:
+                # Get result with timeout - this will wait up to overall_timeout seconds
+                # Log progress periodically to keep connection alive
+                import threading
+                log_interval = 60  # Log every minute
+                last_log_time = start_time
+                
+                def log_progress():
+                    nonlocal last_log_time
+                    while not future.done():
+                        current_time = time.time()
+                        if current_time - last_log_time >= log_interval:
+                            elapsed = current_time - start_time
+                            print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] OCR still processing... ({elapsed:.0f}s elapsed)")
+                            last_log_time = current_time
+                        time.sleep(10)  # Check every 10 seconds
+                
+                # Start logging thread
+                log_thread = threading.Thread(target=log_progress, daemon=True)
+                log_thread.start()
+                
+                # Wait for result with timeout
                 output = future.result(timeout=overall_timeout)
+                elapsed_time = time.time() - start_time
+                print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] OCR completed in {elapsed_time:.2f} seconds")
                 return jsonify(output)
             except FutureTimeoutError:
-                error_msg = f"OCR operation timed out after {overall_timeout} seconds (30 minutes). "
+                elapsed_time = time.time() - start_time
+                error_msg = f"OCR operation timed out after {elapsed_time:.0f} seconds. "
                 error_msg += "Possible causes: 1) Image is too complex, 2) Service is overloaded, "
                 error_msg += "3) sslip.io or reverse proxy has a timeout limit (check /timeout-info endpoint). "
                 error_msg += "Try: smaller image, or access the service directly without sslip.io."
                 print(f"ERROR: {error_msg}")
                 return jsonify({
                     "error": error_msg, 
-                    "timeout_seconds": overall_timeout,
+                    "timeout_seconds": elapsed_time,
                     "suggestion": "If using sslip.io, it may have a timeout limit. Try accessing the service directly or use a different reverse proxy."
                 }), 504  # 504 Gateway Timeout
     except Exception as e:
