@@ -12,7 +12,7 @@ WORKDIR /app
 COPY ocr_api.py /app/
 
 RUN pip install --upgrade pip
-RUN pip install git+https://github.com/datalab-to/chandra.git flask
+RUN pip install chandra-ocr flask
 
 # تعيين المنفذ
 EXPOSE 5000
