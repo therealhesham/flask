@@ -1,3 +1,4 @@
-chandra-ocr
 flask
+# Try PyPI first, fallback to GitHub in Dockerfile if needed
+chandra-ocr
 
