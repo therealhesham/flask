@@ -1,13 +1,18 @@
 FROM python:3.11-slim
 
-RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY ocr_api.py /app/
 
 RUN pip install --upgrade pip
-RUN pip install chandra-ocr flask
+RUN pip install git+https://github.com/datalab-to/chandra.git flask
 
 # تعيين المنفذ
 EXPOSE 5000
