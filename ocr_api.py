@@ -202,6 +202,18 @@ def health():
     """Health check endpoint"""
     return jsonify({"status": "healthy", "service": "ocr-api"}), 200
 
+@app.route("/timeout-info", methods=["GET"])
+def timeout_info():
+    """Get timeout configuration information"""
+    timeout_info = {
+        "overall_timeout_seconds": 1800,
+        "overall_timeout_minutes": 30,
+        "gunicorn_timeout_seconds": 2400,
+        "gunicorn_timeout_minutes": 40,
+        "note": "If you're using sslip.io or another reverse proxy, they may have their own timeout limits that override these settings."
+    }
+    return jsonify(timeout_info), 200
+
 @app.route("/diagnostics", methods=["GET"])
 def diagnostics():
     """Diagnostic endpoint to check chandra package availability"""
@@ -266,8 +278,8 @@ def ocr_image():
     image_path = os.path.join("/tmp", file.filename)
     file.save(image_path)
 
-    # Overall timeout for the entire OCR operation (15 minutes)
-    overall_timeout = 900
+    # Overall timeout for the entire OCR operation (30 minutes)
+    overall_timeout = 1800
     try:
         # Wrap the entire OCR processing in a timeout
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -276,9 +288,16 @@ def ocr_image():
                 output = future.result(timeout=overall_timeout)
                 return jsonify(output)
             except FutureTimeoutError:
-                error_msg = f"OCR operation timed out after {overall_timeout} seconds (15 minutes). The image may be too complex or the service is overloaded. Please try with a smaller or simpler image, or check if there's a timeout configured in your reverse proxy/load balancer."
+                error_msg = f"OCR operation timed out after {overall_timeout} seconds (30 minutes). "
+                error_msg += "Possible causes: 1) Image is too complex, 2) Service is overloaded, "
+                error_msg += "3) sslip.io or reverse proxy has a timeout limit (check /timeout-info endpoint). "
+                error_msg += "Try: smaller image, or access the service directly without sslip.io."
                 print(f"ERROR: {error_msg}")
-                return jsonify({"error": error_msg, "timeout_seconds": overall_timeout}), 504  # 504 Gateway Timeout
+                return jsonify({
+                    "error": error_msg, 
+                    "timeout_seconds": overall_timeout,
+                    "suggestion": "If using sslip.io, it may have a timeout limit. Try accessing the service directly or use a different reverse proxy."
+                }), 504  # 504 Gateway Timeout
     except Exception as e:
         error_msg = str(e)
         print(f"ERROR processing image: {error_msg}")
@@ -297,14 +316,10 @@ def process_ocr_image(image_path, file):
         if OCR is not None:
             # Use OCR class if available (direct method, no output directory needed)
             print(f"Using OCR class for image: {image_path}")
-            # Wrap OCR.read_image in timeout as well
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(lambda: OCR(device="cpu").read_image(image_path))
-                try:
-                    result_text = future.result(timeout=600)  # 10 minutes for OCR class
-                    output = {"text": result_text}
-                except FutureTimeoutError:
-                    raise Exception("OCR.read_image timed out after 600 seconds")
+            # Direct call - timeout is handled by outer wrapper
+            ocr_instance = OCR(device="cpu")
+            result_text = ocr_instance.read_image(image_path)
+            output = {"text": result_text}
         elif InferenceManager is not None:
             # Use InferenceManager if available
             print(f"Using InferenceManager for image: {image_path}")
@@ -427,38 +442,21 @@ def process_ocr_image(image_path, file):
                                     batch_patterns.append(('batch=[ImagePrompt] PIL', 
                                         lambda: method(batch=[ImagePrompt(pil_image, 'Extract text from this image')])))
                                 
-                                # Try each batch pattern with timeout (600 seconds per pattern for OCR processing)
-                                pattern_timeout = 600  # seconds per pattern - OCR can take time for complex images
-                                timeout_count = 0
-                                max_timeouts = 1  # Stop after 1 timeout to try next method faster
-                                
+                                # Try each batch pattern - timeout is handled by outer wrapper
                                 for pattern_name, pattern_func in batch_patterns:
-                                    # Stop if too many timeouts
-                                    if timeout_count >= max_timeouts:
-                                        print(f"Stopping after {max_timeouts} timeouts to avoid long waits")
-                                        break
-                                    
                                     try:
                                         method_tried = f"{method_name}({pattern_name})"
                                         print(f"Trying pattern: {method_tried}")
                                         
-                                        # Execute with timeout
-                                        with ThreadPoolExecutor(max_workers=1) as executor:
-                                            future = executor.submit(pattern_func)
-                                            try:
-                                                result = future.result(timeout=pattern_timeout)
-                                                # Handle result - might be a list or single value
-                                                if isinstance(result, list):
-                                                    result_text = result[0] if len(result) > 0 else str(result)
-                                                else:
-                                                    result_text = result
-                                                print(f"Successfully used method: {method_tried}")
-                                                break
-                                            except FutureTimeoutError:
-                                                timeout_count += 1
-                                                last_error = f"Pattern {pattern_name} timed out after {pattern_timeout}s"
-                                                print(f"Method {method_name} with {pattern_name} timed out ({timeout_count}/{max_timeouts})")
-                                                continue
+                                        # Direct execution - timeout handled by outer wrapper
+                                        result = pattern_func()
+                                        # Handle result - might be a list or single value
+                                        if isinstance(result, list):
+                                            result_text = result[0] if len(result) > 0 else str(result)
+                                        else:
+                                            result_text = result
+                                        print(f"Successfully used method: {method_tried}")
+                                        break
                                     except Exception as e:
                                         last_error = str(e)
                                         print(f"Method {method_name} with {pattern_name} failed: {e}")
@@ -494,24 +492,16 @@ def process_ocr_image(image_path, file):
                                 if method_name == '__call__':
                                     patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
                                 
-                                # Try each pattern with timeout (600 seconds per pattern for OCR processing)
-                                pattern_timeout = 600  # seconds per pattern - OCR can take time for complex images
+                                # Try each pattern - timeout is handled by outer wrapper
                                 for pattern_name, pattern_func in patterns_to_try:
                                     try:
                                         method_tried = f"{method_name}({pattern_name})"
                                         print(f"Trying pattern: {method_tried}")
                                         
-                                        # Execute with timeout
-                                        with ThreadPoolExecutor(max_workers=1) as executor:
-                                            future = executor.submit(pattern_func)
-                                            try:
-                                                result_text = future.result(timeout=pattern_timeout)
-                                                print(f"Successfully used method: {method_tried}")
-                                                break
-                                            except FutureTimeoutError:
-                                                last_error = f"Pattern {pattern_name} timed out after {pattern_timeout}s"
-                                                print(f"Method {method_name} with {pattern_name} timed out")
-                                                continue
+                                        # Direct execution - timeout handled by outer wrapper
+                                        result_text = pattern_func()
+                                        print(f"Successfully used method: {method_tried}")
+                                        break
                                     except Exception as e:
                                         last_error = str(e)
                                         print(f"Method {method_name} with {pattern_name} failed: {e}")
@@ -542,25 +532,16 @@ def process_ocr_image(image_path, file):
             print(f"Using process_file for image: {image_path}")
             with tempfile.TemporaryDirectory() as output_dir:
                 try:
-                    # Wrap process_file in timeout
-                    with ThreadPoolExecutor(max_workers=1) as executor:
-                        # Try different method parameters
-                        def try_process_file():
-                            try:
-                                return process_file(image_path, output_dir, method="hf")
-                            except Exception as e1:
-                                print(f"process_file with method='hf' failed: {e1}, trying without method parameter")
-                                try:
-                                    return process_file(image_path, output_dir)
-                                except Exception as e2:
-                                    print(f"process_file without method parameter failed: {e2}")
-                                    raise Exception(f"process_file failed: {e2}")
-                        
-                        future = executor.submit(try_process_file)
+                    # Try different method parameters - timeout handled by outer wrapper
+                    try:
+                        process_file(image_path, output_dir, method="hf")
+                    except Exception as e1:
+                        print(f"process_file with method='hf' failed: {e1}, trying without method parameter")
                         try:
-                            future.result(timeout=600)  # 10 minutes for process_file
-                        except FutureTimeoutError:
-                            raise Exception("process_file timed out after 600 seconds")
+                            process_file(image_path, output_dir)
+                        except Exception as e2:
+                            print(f"process_file without method parameter failed: {e2}")
+                            raise Exception(f"process_file failed: {e2}")
                     
                     # Find output file (chandra creates markdown files)
                     base_name = os.path.splitext(os.path.basename(file.filename))[0]
