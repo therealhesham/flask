@@ -298,6 +298,7 @@ def ocr_image():
                 # Try various method names that might be used
                 result_text = None
                 method_tried = None
+                last_error = None
                 
                 # List of possible method names to try
                 possible_methods = [
@@ -305,38 +306,68 @@ def ocr_image():
                     'extract_text', 'run', 'execute', 'forward', '__call__'
                 ]
                 
+                # Try to load image as PIL Image for methods that might need it
+                pil_image = None
+                try:
+                    from PIL import Image
+                    pil_image = Image.open(image_path)
+                    print(f"Loaded image as PIL Image: {pil_image.size}")
+                except Exception as e:
+                    print(f"Could not load image as PIL Image: {e}")
+                
                 for method_name in possible_methods:
                     if hasattr(manager, method_name):
                         method = getattr(manager, method_name)
                         if callable(method):
-                            try:
-                                method_tried = method_name
-                                # Try calling with image_path as argument
-                                if method_name == '__call__':
-                                    result_text = manager(image_path)
-                                else:
-                                    result_text = method(image_path)
-                                print(f"Successfully used method: {method_name}")
-                                break
-                            except Exception as e:
-                                print(f"Method {method_name} exists but failed: {e}")
-                                # Try with different argument patterns
+                            # Try various calling patterns
+                            patterns_to_try = []
+                            
+                            # Pattern 1: Direct file path (positional)
+                            patterns_to_try.append(('positional path', lambda: method(image_path)))
+                            
+                            # Pattern 2: File path as keyword 'image'
+                            patterns_to_try.append(('keyword image', lambda: method(image=image_path)))
+                            
+                            # Pattern 3: File path as keyword 'image_path'
+                            patterns_to_try.append(('keyword image_path', lambda: method(image_path=image_path)))
+                            
+                            # Pattern 4: File path as keyword 'path'
+                            patterns_to_try.append(('keyword path', lambda: method(path=image_path)))
+                            
+                            # Pattern 5: PIL Image (positional)
+                            if pil_image is not None:
+                                patterns_to_try.append(('PIL Image positional', lambda: method(pil_image)))
+                            
+                            # Pattern 6: PIL Image as keyword 'image'
+                            if pil_image is not None:
+                                patterns_to_try.append(('PIL Image keyword', lambda: method(image=pil_image)))
+                            
+                            # Pattern 7: Direct call on manager (for __call__)
+                            if method_name == '__call__':
+                                patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
+                            
+                            # Try each pattern
+                            for pattern_name, pattern_func in patterns_to_try:
                                 try:
-                                    if method_name != '__call__':
-                                        # Try with keyword argument
-                                        result_text = method(image=image_path)
-                                        method_tried = f"{method_name}(image=...)"
-                                        print(f"Successfully used method: {method_tried}")
-                                        break
-                                except:
-                                    pass
-                                continue
+                                    method_tried = f"{method_name}({pattern_name})"
+                                    result_text = pattern_func()
+                                    print(f"Successfully used method: {method_tried}")
+                                    break
+                                except Exception as e:
+                                    last_error = str(e)
+                                    print(f"Method {method_name} with {pattern_name} failed: {e}")
+                                    continue
+                            
+                            if result_text is not None:
+                                break
                 
                 if result_text is None:
-                    # Provide detailed error with available methods
+                    # Provide detailed error with available methods and last error
                     error_msg = f"InferenceManager found but no known method to process image. "
                     error_msg += f"Available methods: {available_methods}. "
-                    error_msg += f"Tried methods: {possible_methods}"
+                    error_msg += f"Tried methods: {possible_methods}. "
+                    if last_error:
+                        error_msg += f"Last error: {last_error}"
                     raise Exception(error_msg)
                 
                 output = {"text": result_text}
