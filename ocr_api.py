@@ -301,7 +301,7 @@ def ocr_image():
                 
                 # List of possible method names to try
                 possible_methods = [
-                    'process', 'read_image', 'infer', 'predict', 'ocr', 
+                    'generate', 'process', 'read_image', 'infer', 'predict', 'ocr', 
                     'extract_text', 'run', 'execute', 'forward', '__call__'
                 ]
                 
