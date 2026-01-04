@@ -849,7 +849,7 @@ def convert_document_route():
         print(f"  Output format: {output_format}, Mode: {mode}")
         
         # Use the convert_document function from datalab_converter
-        result = convert_document(temp_file_path, output_format=output_format, mode=mode)
+        result = convert_document(temp_file_path, output_format=output_format, mode=mode, api_key=api_key)
         
         elapsed_time = time.time() - start_time
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Document conversion completed in {elapsed_time:.2f} seconds")

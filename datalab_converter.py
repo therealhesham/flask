@@ -3,9 +3,8 @@ import time
 import requests
 
 API_URL = "https://www.datalab.to/api/v1/marker"
-API_KEY = os.getenv("DATALAB_API_KEY")
 
-def convert_document(file_path, output_format="markdown", mode="balanced"):
+def convert_document(file_path, output_format="markdown", mode="balanced", api_key=None):
     """
     Convert document using Datalab API
     
@@ -13,6 +12,7 @@ def convert_document(file_path, output_format="markdown", mode="balanced"):
         file_path: Path to the PDF file
         output_format: Output format (default: "markdown")
         mode: Conversion mode (default: "balanced")
+        api_key: API key for Datalab API (optional, defaults to DATALAB_API_KEY env var)
     
     Returns:
         dict: Result containing the converted document
@@ -20,10 +20,14 @@ def convert_document(file_path, output_format="markdown", mode="balanced"):
     Raises:
         Exception: If conversion fails or times out
     """
-    if not API_KEY:
-        raise Exception("DATALAB_API_KEY environment variable is not set")
+    # Use provided API key or fall back to environment variable
+    if api_key is None:
+        api_key = os.getenv("DATALAB_API_KEY")
     
-    headers = {"X-API-Key": API_KEY}
+    if not api_key:
+        raise Exception("DATALAB_API_KEY environment variable is not set or api_key parameter not provided")
+    
+    headers = {"X-API-Key": api_key}
 
     # Submit request
     with open(file_path, "rb") as f:
