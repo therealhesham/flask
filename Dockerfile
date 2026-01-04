@@ -49,6 +49,7 @@ COPY verify_install.py /app/
 RUN python3 /app/verify_install.py
 
 COPY ocr_api.py /app/
+COPY datalab_converter.py /app/
 
 # Expose the port
 EXPOSE 5000

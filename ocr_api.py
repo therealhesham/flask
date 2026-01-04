@@ -7,12 +7,22 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 # Import datalab_converter
+convert_document = None
 try:
     from datalab_converter import convert_document
 except ImportError:
     # If import fails, try adding current directory to path
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from datalab_converter import convert_document
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+    try:
+        from datalab_converter import convert_document
+    except ImportError as e:
+        print(f"⚠ Warning: Could not import datalab_converter: {e}")
+        print(f"  Current directory: {current_dir}")
+        print(f"  Python path: {sys.path[:3]}...")  # Show first 3 entries
+        print(f"  Files in current directory: {os.listdir(current_dir) if os.path.exists(current_dir) else 'N/A'}")
+        # Don't raise - let the route handle the error gracefully
 
 # Try different import paths for process_file from chandra
 process_file = None
@@ -801,6 +811,11 @@ def convert_document_route():
     Convert document using Datalab API
     Accepts PDF files and converts them to markdown or other formats
     """
+    # Check if convert_document function is available
+    if convert_document is None:
+        return jsonify({
+            "error": "datalab_converter module not found. Please ensure datalab_converter.py is in the same directory as ocr_api.py"
+        }), 500
     
     # Check if API key is configured
     api_key = "VeQhnKsKghLRJJCzWLmwFPSxFUwwI5zC4sNIHPnEK9Q"
