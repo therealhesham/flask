@@ -421,6 +421,24 @@ def ocr_image():
             except Exception as e:
                 print(f"Warning: Could not remove temp file {image_path}: {e}")
 
+def execute_with_pattern_timeout(pattern_func, pattern_name, timeout_seconds=300):
+    """
+    Execute a pattern function with its own timeout.
+    This prevents one hanging pattern from blocking all other attempts.
+    timeout_seconds: Default 5 minutes per pattern attempt
+    """
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(pattern_func)
+        try:
+            result = future.result(timeout=timeout_seconds)
+            return result, None
+        except FutureTimeoutError:
+            error_msg = f"Pattern '{pattern_name}' timed out after {timeout_seconds} seconds"
+            print(f"⚠ {error_msg}")
+            return None, error_msg
+        except Exception as e:
+            return None, str(e)
+
 def process_ocr_image(image_path, file):
     """Process OCR on the image - called within timeout wrapper"""
     try:
@@ -553,34 +571,38 @@ def process_ocr_image(image_path, file):
                                     batch_patterns.append(('batch=[ImagePrompt] PIL', 
                                         lambda: method(batch=[ImagePrompt(pil_image, 'Extract text from this image')])))
                                 
-                                # Try each batch pattern - timeout is handled by outer wrapper
+                                # Try each batch pattern with individual timeouts
+                                # Each pattern gets 5 minutes - prevents one hanging pattern from blocking others
+                                pattern_timeout = 300  # 5 minutes per pattern
                                 for pattern_name, pattern_func in batch_patterns:
-                                    try:
-                                        method_tried = f"{method_name}({pattern_name})"
-                                        print(f"Trying pattern: {method_tried}")
-                                        
-                                        # Direct execution - timeout handled by outer wrapper
-                                        result = pattern_func()
+                                    method_tried = f"{method_name}({pattern_name})"
+                                    print(f"Trying pattern: {method_tried} (timeout: {pattern_timeout}s)")
+                                    
+                                    result, error = execute_with_pattern_timeout(pattern_func, pattern_name, pattern_timeout)
+                                    
+                                    if result is not None:
                                         # Handle result - might be a list or single value
                                         if isinstance(result, list):
                                             result_text = result[0] if len(result) > 0 else str(result)
                                         else:
                                             result_text = result
-                                        print(f"Successfully used method: {method_tried}")
+                                        print(f"✓ Successfully used method: {method_tried}")
                                         break
-                                    except Exception as e:
-                                        last_error = str(e)
-                                        error_str = str(e)
-                                        print(f"Method {method_name} with {pattern_name} failed: {e}")
+                                    else:
+                                        # Pattern failed or timed out
+                                        last_error = error or "Unknown error"
+                                        error_str = last_error.lower()
+                                        print(f"✗ Method {method_name} with {pattern_name} failed: {last_error}")
                                         
                                         # Check if it's a vLLM connection error
-                                        if "vllm" in error_str.lower() or "connection error" in error_str.lower() or "Connection error" in error_str:
+                                        if "vllm" in error_str or "connection error" in error_str:
                                             print(f"⚠ vLLM connection error detected. This may indicate:")
                                             print(f"  - vLLM service is not running or unreachable")
                                             print(f"  - Network connectivity issues")
                                             print(f"  - vLLM service is overloaded")
                                             print(f"  - Check /vllm-status endpoint for configuration info")
                                         
+                                        # Continue to next pattern
                                         continue
                                 
                                 if result_text is not None:
@@ -613,29 +635,34 @@ def process_ocr_image(image_path, file):
                                 if method_name == '__call__':
                                     patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
                                 
-                                # Try each pattern - timeout is handled by outer wrapper
+                                # Try each pattern with individual timeouts
+                                # Each pattern gets 5 minutes - prevents one hanging pattern from blocking others
+                                pattern_timeout = 300  # 5 minutes per pattern
                                 for pattern_name, pattern_func in patterns_to_try:
-                                    try:
-                                        method_tried = f"{method_name}({pattern_name})"
-                                        print(f"Trying pattern: {method_tried}")
-                                        
-                                        # Direct execution - timeout handled by outer wrapper
-                                        result_text = pattern_func()
-                                        print(f"Successfully used method: {method_tried}")
+                                    method_tried = f"{method_name}({pattern_name})"
+                                    print(f"Trying pattern: {method_tried} (timeout: {pattern_timeout}s)")
+                                    
+                                    result, error = execute_with_pattern_timeout(pattern_func, pattern_name, pattern_timeout)
+                                    
+                                    if result is not None:
+                                        result_text = result
+                                        print(f"✓ Successfully used method: {method_tried}")
                                         break
-                                    except Exception as e:
-                                        last_error = str(e)
-                                        error_str = str(e)
-                                        print(f"Method {method_name} with {pattern_name} failed: {e}")
+                                    else:
+                                        # Pattern failed or timed out
+                                        last_error = error or "Unknown error"
+                                        error_str = last_error.lower()
+                                        print(f"✗ Method {method_name} with {pattern_name} failed: {last_error}")
                                         
                                         # Check if it's a vLLM connection error
-                                        if "vllm" in error_str.lower() or "connection error" in error_str.lower() or "Connection error" in error_str:
+                                        if "vllm" in error_str or "connection error" in error_str:
                                             print(f"⚠ vLLM connection error detected. This may indicate:")
                                             print(f"  - vLLM service is not running or unreachable")
                                             print(f"  - Network connectivity issues")
                                             print(f"  - vLLM service is overloaded")
                                             print(f"  - Check /vllm-status endpoint for configuration info")
                                         
+                                        # Continue to next pattern
                                         continue
                                 
                                 if result_text is not None:

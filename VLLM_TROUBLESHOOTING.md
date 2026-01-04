@@ -114,3 +114,5 @@ systemctl restart vllm
 - `GET /health` - Health check
 - `POST /ocr` - معالجة OCR (يستخدم vLLM تلقائياً)
 
+
+
