@@ -539,62 +539,64 @@ def process_ocr_image(image_path, file):
                                     print(f"Could not inspect generate method signature: {e}")
                                 
                                 # Try different batch formats
-                                # The error suggests it expects objects with 'prompt' attribute
+                                # Reordered: Most successful patterns first (ImagePrompt PIL works!)
                                 batch_patterns = []
                                 
-                                # Pattern 1: List of dicts with 'image' and 'prompt' keys (image path)
-                                batch_patterns.append(('batch=[{image, prompt}] path', 
-                                    lambda: method(batch=[{'image': image_path, 'prompt': 'Extract text from this image'}])))
-                                
-                                # Pattern 2: List of dicts with 'image' and 'prompt' keys (PIL Image)
-                                if pil_image is not None:
-                                    batch_patterns.append(('batch=[{image, prompt}] PIL', 
-                                        lambda: method(batch=[{'image': pil_image, 'prompt': 'Extract text from this image'}])))
-                                
-                                # Pattern 3: List of dicts with different key names
-                                batch_patterns.append(('batch=[{image_path, prompt}]', 
-                                    lambda: method(batch=[{'image_path': image_path, 'prompt': 'Extract text from this image'}])))
-                                
-                                # Pattern 4: List of dicts with 'img' key
-                                batch_patterns.append(('batch=[{img, prompt}]', 
-                                    lambda: method(batch=[{'img': image_path, 'prompt': 'Extract text from this image'}])))
-                                
-                                # Pattern 5: List of dicts with PIL Image and 'img' key
-                                if pil_image is not None:
-                                    batch_patterns.append(('batch=[{img, prompt}] PIL', 
-                                        lambda: method(batch=[{'img': pil_image, 'prompt': 'Extract text from this image'}])))
-                                
-                                # Pattern 6: Simple object-like dict with prompt
-                                batch_patterns.append(('batch=[{image, prompt}] OCR', 
-                                    lambda: method(batch=[{'image': image_path, 'prompt': 'What text is in this image?'}])))
-                                
-                                # Pattern 7: Empty prompt or no prompt
-                                batch_patterns.append(('batch=[{image}] no prompt', 
-                                    lambda: method(batch=[{'image': image_path}])))
-                                
-                                # Pattern 8: List of image paths (fallback)
-                                batch_patterns.append(('batch=[path]', lambda: method(batch=[image_path])))
-                                
-                                # Pattern 9: List of PIL Images (fallback)
-                                if pil_image is not None:
-                                    batch_patterns.append(('batch=[PIL]', lambda: method(batch=[pil_image])))
-                                
-                                # Pattern 10: Positional batch with dict
-                                batch_patterns.append(('batch=[{image, prompt}] positional', 
-                                    lambda: method([{'image': image_path, 'prompt': 'Extract text from this image'}])))
-                                
-                                # Pattern 11: Simple object class with image and prompt attributes
+                                # Define ImagePrompt class first (used by successful patterns)
                                 class ImagePrompt:
                                     def __init__(self, image, prompt):
                                         self.image = image
                                         self.prompt = prompt
                                 
-                                batch_patterns.append(('batch=[ImagePrompt] path', 
-                                    lambda: method(batch=[ImagePrompt(image_path, 'Extract text from this image')])))
-                                
+                                # Pattern 1: ImagePrompt with PIL Image (KNOWN TO WORK - try first!)
                                 if pil_image is not None:
                                     batch_patterns.append(('batch=[ImagePrompt] PIL', 
                                         lambda: method(batch=[ImagePrompt(pil_image, 'Extract text from this image')])))
+                                
+                                # Pattern 2: ImagePrompt with path (also works, but PIL is better)
+                                batch_patterns.append(('batch=[ImagePrompt] path', 
+                                    lambda: method(batch=[ImagePrompt(image_path, 'Extract text from this image')])))
+                                
+                                # Pattern 3: List of PIL Images (simple fallback)
+                                if pil_image is not None:
+                                    batch_patterns.append(('batch=[PIL]', lambda: method(batch=[pil_image])))
+                                
+                                # Pattern 4: List of image paths (simple fallback)
+                                batch_patterns.append(('batch=[path]', lambda: method(batch=[image_path])))
+                                
+                                # Pattern 5: List of dicts with 'image' and 'prompt' keys (PIL Image)
+                                if pil_image is not None:
+                                    batch_patterns.append(('batch=[{image, prompt}] PIL', 
+                                        lambda: method(batch=[{'image': pil_image, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 6: List of dicts with 'img' key and PIL Image
+                                if pil_image is not None:
+                                    batch_patterns.append(('batch=[{img, prompt}] PIL', 
+                                        lambda: method(batch=[{'img': pil_image, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 7: List of dicts with 'image' and 'prompt' keys (image path)
+                                batch_patterns.append(('batch=[{image, prompt}] path', 
+                                    lambda: method(batch=[{'image': image_path, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 8: List of dicts with 'img' key
+                                batch_patterns.append(('batch=[{img, prompt}]', 
+                                    lambda: method(batch=[{'img': image_path, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 9: List of dicts with different key names
+                                batch_patterns.append(('batch=[{image_path, prompt}]', 
+                                    lambda: method(batch=[{'image_path': image_path, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 10: Simple object-like dict with prompt
+                                batch_patterns.append(('batch=[{image, prompt}] OCR', 
+                                    lambda: method(batch=[{'image': image_path, 'prompt': 'What text is in this image?'}])))
+                                
+                                # Pattern 11: Positional batch with dict
+                                batch_patterns.append(('batch=[{image, prompt}] positional', 
+                                    lambda: method([{'image': image_path, 'prompt': 'Extract text from this image'}])))
+                                
+                                # Pattern 12: Empty prompt or no prompt (least likely to work)
+                                batch_patterns.append(('batch=[{image}] no prompt', 
+                                    lambda: method(batch=[{'image': image_path}])))
                                 
                                 # Try each batch pattern with individual timeouts
                                 # Each pattern gets 10 minutes - allows time for vLLM retries and prevents one hanging pattern from blocking others
