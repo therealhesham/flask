@@ -421,22 +421,47 @@ def ocr_image():
             except Exception as e:
                 print(f"Warning: Could not remove temp file {image_path}: {e}")
 
-def execute_with_pattern_timeout(pattern_func, pattern_name, timeout_seconds=300):
+def execute_with_pattern_timeout(pattern_func, pattern_name, timeout_seconds=600):
     """
     Execute a pattern function with its own timeout.
     This prevents one hanging pattern from blocking all other attempts.
-    timeout_seconds: Default 5 minutes per pattern attempt
+    timeout_seconds: Default 10 minutes per pattern attempt (allows time for vLLM retries)
     """
+    import time
+    start_time = time.time()
+    
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(pattern_func)
+        
+        # Log progress every 60 seconds for long-running operations
+        def log_progress():
+            while not future.done():
+                elapsed = time.time() - start_time
+                if elapsed > 60 and elapsed % 60 < 2:  # Log roughly every minute
+                    print(f"  ⏳ Pattern '{pattern_name}' still running... ({elapsed:.0f}s elapsed)")
+                time.sleep(5)
+        
+        import threading
+        log_thread = threading.Thread(target=log_progress, daemon=True)
+        log_thread.start()
+        
         try:
             result = future.result(timeout=timeout_seconds)
+            elapsed = time.time() - start_time
+            if elapsed > 30:  # Only log if it took significant time
+                print(f"  ✓ Pattern '{pattern_name}' completed in {elapsed:.1f}s")
             return result, None
         except FutureTimeoutError:
-            error_msg = f"Pattern '{pattern_name}' timed out after {timeout_seconds} seconds"
+            elapsed = time.time() - start_time
+            error_msg = f"Pattern '{pattern_name}' timed out after {elapsed:.0f} seconds"
             print(f"⚠ {error_msg}")
             return None, error_msg
         except Exception as e:
+            elapsed = time.time() - start_time
+            error_str = str(e).lower()
+            # Check if it's a vLLM connection error - these are expected and will retry
+            if "vllm" in error_str or "connection error" in error_str:
+                print(f"  ⚠ Pattern '{pattern_name}' encountered vLLM connection error (chandra will retry automatically)")
             return None, str(e)
 
 def process_ocr_image(image_path, file):
@@ -572,8 +597,8 @@ def process_ocr_image(image_path, file):
                                         lambda: method(batch=[ImagePrompt(pil_image, 'Extract text from this image')])))
                                 
                                 # Try each batch pattern with individual timeouts
-                                # Each pattern gets 5 minutes - prevents one hanging pattern from blocking others
-                                pattern_timeout = 300  # 5 minutes per pattern
+                                # Each pattern gets 10 minutes - allows time for vLLM retries and prevents one hanging pattern from blocking others
+                                pattern_timeout = 600  # 10 minutes per pattern (default, allows for vLLM retries)
                                 for pattern_name, pattern_func in batch_patterns:
                                     method_tried = f"{method_name}({pattern_name})"
                                     print(f"Trying pattern: {method_tried} (timeout: {pattern_timeout}s)")
@@ -636,8 +661,8 @@ def process_ocr_image(image_path, file):
                                     patterns_to_try.insert(0, ('direct call', lambda: manager(image_path)))
                                 
                                 # Try each pattern with individual timeouts
-                                # Each pattern gets 5 minutes - prevents one hanging pattern from blocking others
-                                pattern_timeout = 300  # 5 minutes per pattern
+                                # Each pattern gets 10 minutes - allows time for vLLM retries and prevents one hanging pattern from blocking others
+                                pattern_timeout = 600  # 10 minutes per pattern (default, allows for vLLM retries)
                                 for pattern_name, pattern_func in patterns_to_try:
                                     method_tried = f"{method_name}({pattern_name})"
                                     print(f"Trying pattern: {method_tried} (timeout: {pattern_timeout}s)")
