@@ -3,7 +3,16 @@ import os
 import tempfile
 import subprocess
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+
+# Import datalab_converter
+try:
+    from datalab_converter import convert_document
+except ImportError:
+    # If import fails, try adding current directory to path
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from datalab_converter import convert_document
 
 # Try different import paths for process_file from chandra
 process_file = None
@@ -792,8 +801,6 @@ def convert_document_route():
     Convert document using Datalab API
     Accepts PDF files and converts them to markdown or other formats
     """
-    from datalab_converter import convert_document
-    import time
     
     # Check if API key is configured
     api_key = "VeQhnKsKghLRJJCzWLmwFPSxFUwwI5zC4sNIHPnEK9Q"
