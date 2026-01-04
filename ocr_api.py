@@ -786,5 +786,68 @@ def process_ocr_image(image_path, file):
     
     return output
 
+@app.route("/convert-document", methods=["POST"])
+def convert_document_route():
+    """
+    Convert document using Datalab API
+    Accepts PDF files and converts them to markdown or other formats
+    """
+    from datalab_converter import convert_document
+    import time
+    
+    # Check if API key is configured
+    api_key = "VeQhnKsKghLRJJCzWLmwFPSxFUwwI5zC4sNIHPnEK9Q"
+    if not api_key:
+        return jsonify({
+            "error": "DATALAB_API_KEY environment variable is not set"
+        }), 500
+    
+    # Check if file is provided
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+    
+    # Get parameters from request
+    output_format = request.form.get("output_format", "markdown")
+    mode = request.form.get("mode", "balanced")
+    
+    # Save uploaded file temporarily
+    temp_file_path = None
+    start_time = time.time()
+    try:
+        # Create temp file
+        temp_fd, temp_file_path = tempfile.mkstemp(suffix=os.path.splitext(file.filename)[1])
+        os.close(temp_fd)  # Close the file descriptor
+        file.save(temp_file_path)
+        
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting document conversion for: {file.filename}")
+        print(f"  Output format: {output_format}, Mode: {mode}")
+        
+        # Use the convert_document function from datalab_converter
+        result = convert_document(temp_file_path, output_format=output_format, mode=mode)
+        
+        elapsed_time = time.time() - start_time
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Document conversion completed in {elapsed_time:.2f} seconds")
+        
+        return jsonify({
+            "status": "success",
+            "result": result
+        }), 200
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"ERROR processing document: {error_msg}")
+        return jsonify({"error": error_msg}), 500
+    finally:
+        # Clean up temp file
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                print(f"Warning: Could not remove temp file {temp_file_path}: {e}")
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

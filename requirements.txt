@@ -1,5 +1,6 @@
 flask
 gunicorn
+requests
 # Note: chandra-ocr is installed from GitHub in Dockerfile
 # Install with: pip install git+https://github.com/datalab-to/chandra.git
 # Or: pip install chandra-ocr
